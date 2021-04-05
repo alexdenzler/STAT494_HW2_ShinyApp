@@ -8,6 +8,7 @@ library(vip)               # for variable importance plots
 library(DALEX)             # for model interpretation
 library(DALEXtra)          # for extension of DALEX
 library(patchwork)         # for combining plots nicely
+library(forcats)           # need for fct_relevel - not in tidymodels
 library(shiny)             # for creating a shiny app
 library(rsconnect)
 
@@ -15,9 +16,17 @@ library(rsconnect)
 lending_stack <- readRDS("lending_final_stack")
 data("lending_club")
 
+# Find unique states and put them in alphabetical order:
+states <- 
+    lending_stack$train  %>% 
+    select(addr_state) %>% 
+    distinct(addr_state) %>% 
+    arrange(addr_state) %>% 
+    pull(addr_state)
+
 ui <- fluidPage(
 
-    titlePanel("Lending Stack Model Predictions"),
+    titlePanel("Lending Stack Model Ceteris Perabus Profile"),
     
     sidebarLayout(
         sidebarPanel(
@@ -108,20 +117,23 @@ ui <- fluidPage(
                             value = 0),
                 selectInput(inputId = "term",
                             label = "Term",
-                            choices = lending_club$term),
+                            choices = lending_stack$train$term),
                 selectInput(inputId = "sub_grade",
                             label = "Loan Subgrade",
-                            choices = lending_club$sub_grade),
+                            choices = lending_stack$train$sub_grade),
                 selectInput(inputId = "addr_state",
                             label = "State",
-                            choices = lending_club$addr_state),
+                            choices = states),
                 selectInput(inputId = "verification_status",
                             label = "Verification Status",
-                            choices = lending_club$verification_status),
+                            choices = lending_stack$train$verification_status),
                 selectInput(inputId = "emp_length",
                             label = "Employment Length",
-                            choices = lending_club$emp_length),
-                submitButton(text = "Create Plot")
+                            choices = lending_stack$train$emp_length),
+                # selectInput(inputId = "var",
+                #             label = "Variable to vary in the plot:",
+                #             choices = lending_stack$train),
+                submitButton(text = "Create CP Profile")
         ),
         mainPanel(
             plotOutput(outputId = "cpPlot")
@@ -132,22 +144,43 @@ ui <- fluidPage(
 server <- function(input, output) {
 
     output$cpPlot <- renderPlot({
-        obs <- lending_club %>% 
-            slice_sample()
+        set.seed(494)
+        obs <- tibble(funded_amnt = input$funded_amnt, 
+                      term = input$term, 
+                      int_rate = input$int_rate, 
+                      sub_grade = input$sub_grade, 
+                      addr_state = input$addr_state, 
+                      verification_status = input$verification_status, 
+                      annual_inc = input$annual_inc, 
+                      emp_length = input$emp_length, 
+                      delinq_2yrs = input$delinq_2yrs, 
+                      inq_last_6mths = input$inq_last_6mths, 
+                      revol_util = input$revol_util, 
+                      acc_now_delinq = input$acc_now_delinq, 
+                      open_il_6m = input$open_il_6m, 
+                      open_il_12m = input$open_il_12m, 
+                      open_il_24m = input$open_il_24m, 
+                      total_bal_il = input$total_bal_il, 
+                      all_util = input$all_util, 
+                      inq_fi = input$inq_fi, 
+                      inq_last_12m = input$inq_last_12m, 
+                      num_il_tl = input$num_il_tl, 
+                      total_il_high_credit_limit = input$total_il_high_credit_limit)
         obs_many <- obs %>%
-            sample_n(size = 50, replace = TRUE)
+            sample_n(size = 50, replace = TRUE) %>% 
+            select(-.data[[input$var]])
         
         obs_many %>% 
-            select(input) %>% 
+            select(.data[[input$var]]) %>% 
             bind_cols(
                 predict(lending_stack,
                         new_data = obs_many,
                         type = "prob")
             ) %>% 
-            ggplot(aes(x = input,
-                       y = .pred_bad)) +
+            ggplot(aes(x = .data[[input$var]],
+                       y = .pred_good)) +
             geom_point() +
-            labs(y = "Predicted Class")
+            labs(title = "Predicted Probability of Loan Being Paid Back on Time")
     })
 }
 
